@@ -8,9 +8,17 @@ import os
 ///  - Screen Recording: snapshots of hidden icons and reading other apps'
 ///    window names.
 ///
-/// macOS 26 quirks: CGRequestScreenCaptureAccess() shows no prompt (broken
-/// since macOS 15) — we poke SCShareableContent instead; a Screen Recording
-/// grant only takes effect after the app is relaunched.
+/// macOS 26 quirks handled here:
+///  - CGRequestScreenCaptureAccess() shows no prompt (broken since macOS 15),
+///    so SCShareableContent is what triggers the Screen Recording prompt and
+///    registers the app in the System Settings list;
+///  - a Screen Recording grant only takes effect after the app is relaunched;
+///  - MoreBar is an LSUIElement accessory app that is never frontmost. Firing
+///    BOTH TCC prompts at once makes the window server drop one of them — the
+///    dropped one never even registers in its Settings list, forcing the user
+///    to add the app manually with "+". So the two requests are SEQUENCED
+///    through the poll loop: only one prompt is ever outstanding, with a gap
+///    between them, and the app is brought forward before each.
 @MainActor
 final class PermissionsManager {
     enum Status {
@@ -26,6 +34,14 @@ final class PermissionsManager {
     var onGranted: ((_ freshlyGranted: Bool) -> Void)?
 
     private var pollTimer: Timer?
+    private var ticks = 0
+    private var accessibilityPrompted = false
+    private var accessibilityPromptTick = 0
+    private var screenRecordingPrompted = false
+
+    /// Ticks to wait after the Accessibility prompt before triggering the
+    /// Screen Recording one, so the two dialogs never race.
+    private static let promptGapTicks = 3
 
     static var accessibilityGranted: Bool {
         AXIsProcessTrusted()
@@ -46,40 +62,78 @@ final class PermissionsManager {
 
     private static let log = Logger(subsystem: "com.nexatech.MoreBar", category: "permissions")
 
-    /// Requests any missing permissions (system prompts) and starts polling.
-    /// Calls onGranted (once) when both are in place.
+    /// Starts the sequenced permission flow. Calls onGranted (once) when both
+    /// permissions are in place.
     func requestIfNeeded() {
-        Self.log.info("permissions: AX=\(Self.accessibilityGranted) SR-preflight=\(Self.screenRecordingGranted)")
+        Self.log.info("permissions at launch: AX=\(Self.accessibilityGranted) SR-preflight=\(Self.screenRecordingGranted)")
         guard Self.status != .granted else {
-            Self.log.info("both permissions report granted; needsRelaunch=\(Self.screenRecordingNeedsRelaunch)")
+            Self.log.info("both already granted; needsRelaunch=\(Self.screenRecordingNeedsRelaunch)")
             onGranted?(false)
             return
         }
-        if !Self.accessibilityGranted {
-            Self.log.info("prompting for Accessibility")
-            let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
-            AXIsProcessTrustedWithOptions(options)
-        }
-        if !Self.screenRecordingGranted {
-            // Triggers the system Screen Recording prompt and makes the app
-            // appear in the System Settings list.
-            Self.log.info("requesting Screen Recording via SCShareableContent")
-            SCShareableContent.getWithCompletionHandler { content, error in
-                Self.log.info("SCShareableContent result: windows=\(content?.windows.count ?? -1) error=\(String(describing: error))")
-            }
-        }
+        // Deliberately do NOT trigger any prompt synchronously here — the poll
+        // loop sequences them so two TCC dialogs never fire at once.
         startPolling()
     }
 
     private func startPolling() {
         guard pollTimer == nil else { return }
         pollTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
-            Task { @MainActor [weak self] in
-                guard let self, Self.status == .granted else { return }
-                self.pollTimer?.invalidate()
-                self.pollTimer = nil
-                self.onGranted?(true)
+            Task { @MainActor [weak self] in self?.tick() }
+        }
+    }
+
+    private func tick() {
+        ticks += 1
+        let ax = Self.accessibilityGranted
+        let sr = Self.screenRecordingGranted
+
+        if ax && sr {
+            pollTimer?.invalidate()
+            pollTimer = nil
+            Self.log.info("both permissions granted")
+            onGranted?(true)
+            return
+        }
+
+        // Step 1: Accessibility. Prompt once, first.
+        if !ax {
+            if !accessibilityPrompted {
+                Self.log.info("prompting for Accessibility")
+                bringToFront()
+                AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
+                accessibilityPrompted = true
+                accessibilityPromptTick = ticks
             }
+            // Fall through to allow Screen Recording once the gap has passed,
+            // even if the user hasn't decided on Accessibility yet — but never
+            // in the same tick as the Accessibility prompt.
+        }
+
+        // Step 2: Screen Recording. Prompt once, only after Accessibility is
+        // either granted or its prompt has had a few seconds to settle.
+        let accessibilitySettled = ax
+            || (accessibilityPrompted && ticks >= accessibilityPromptTick + Self.promptGapTicks)
+        if !sr && !screenRecordingPrompted && accessibilitySettled {
+            Self.log.info("requesting Screen Recording")
+            bringToFront()
+            triggerScreenRecordingPrompt()
+            screenRecordingPrompted = true
+        }
+    }
+
+    /// Brings the accessory app forward so the system prompt reliably attaches
+    /// to it instead of being presented behind the active app.
+    private func bringToFront() {
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func triggerScreenRecordingPrompt() {
+        // SCShareableContent both shows the prompt and registers the app in
+        // the Screen Recording list. Fired alone (not racing the AX prompt),
+        // this now reliably registers.
+        SCShareableContent.getWithCompletionHandler { content, error in
+            Self.log.info("SCShareableContent: windows=\(content?.windows.count ?? -1) error=\(String(describing: error))")
         }
     }
 
