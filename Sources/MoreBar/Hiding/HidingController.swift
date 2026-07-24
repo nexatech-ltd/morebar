@@ -1,92 +1,131 @@
 import AppKit
 import os
 
-/// Управляет скрытием сторонних иконок распоркой.
+/// Drives hiding of third-party icons with the spacer.
 ///
-/// На macOS 26 бар — единое пространство: системные иконки (кроме Clock и
-/// Control Center) перемещаемы, и неверно поставленная распорка выталкивает
-/// их за экран. Поэтому позиция подбирается динамически:
+/// On macOS 26 the menu bar is a single unified space: system icons (except
+/// the Clock and Control Center) are movable, and a spacer expanded from the
+/// wrong slot shoves them off the screen. Worse, "rolling back" (collapsing)
+/// does NOT bring parked icons back. The only safe strategy is:
 ///
-///  1. свёрнутая распорка ставится и пересоздаётся с растущей позицией,
-///     пока её x не окажется левее самой левой ВИДИМОЙ системной иконки;
-///  2. распорка разворачивается (10 000 pt), выталкивая всё левее себя;
-///  3. проверка: ни одна системная иконка из базовой линии не пропала
-///     с экрана; иначе — мгновенный откат и новая попытка.
+///  1. if there are no visible non-system icons, do nothing (nothing to hide);
+///  2. recreate the collapsed spacer with a growing position until its x is
+///     to the left of the leftmost VISIBLE system icon;
+///  3. re-check the invariant against fresh geometry, and only then expand:
+///     expansion grows leftwards from the spacer's slot and cannot touch
+///     anything to its right.
 @MainActor
 final class HidingController {
     private static let log = Logger(subsystem: "com.nexatech.MoreBar", category: "hiding")
 
     private let spacer: SpacerItem
     private let lister: MenuBarItemLister
+    /// The spacer is expanded from a proven-safe position.
     private(set) var isEngaged = false
+    private var inProgress = false
 
     init(spacer: SpacerItem, lister: MenuBarItemLister) {
         self.spacer = spacer
         self.lister = lister
     }
 
-    /// Видимые системные иконки (базовая линия безопасности).
-    private func visibleSystemItems() -> [MenuBarItem] {
-        lister.currentItems().filter { $0.window.isOnScreen && $0.isSystem }
-    }
-
-    private func spacerWindow() -> WindowInfo? {
-        WindowInfo.statusItemWindows().first { $0.name == SpacerItem.autosaveName }
-    }
-
-    /// Подбирает позицию и разворачивает распорку. Требует уже выданных
-    /// прав (Screen Recording — для чтения имён окон).
+    /// Idempotent: safe to call every few seconds. Expands the spacer when
+    /// there is something to hide and doing so is provably safe.
     func engage() async {
-        guard !isEngaged else { return }
+        guard !isEngaged, !inProgress else { return }
+        inProgress = true
+        defer { inProgress = false }
 
-        let baseline = visibleSystemItems()
-        guard let leftmostSystemX = baseline.map(\.window.frame.minX).min() else {
-            Self.log.warning("no visible system items found; refusing to engage")
+        let items = lister.currentItems()
+        let visibleHideable = items.filter { $0.window.isOnScreen && !$0.isSystem }
+        guard !visibleHideable.isEmpty else {
+            // No visible third-party icons: either macOS already parked them
+            // all, or there is simply nothing to hide. No spacer needed.
             return
         }
 
-        // Шаг 1: подгонка позиции свёрнутой распорки левее системного блока.
-        var attempts = 0
-        while attempts < 8 {
-            guard let spacerFrame = spacerWindow()?.frame else {
-                Self.log.error("spacer window not found")
-                return
-            }
-            if spacerFrame.minX < leftmostSystemX { break }
-            let overshoot = spacerFrame.minX - leftmostSystemX
-            spacer.recreate(preferredPosition: spacer.preferredPosition + max(50, overshoot))
-            attempts += 1
-            try? await Task.sleep(for: .milliseconds(300))
-        }
-        guard let placed = spacerWindow(), placed.frame.minX < leftmostSystemX else {
-            Self.log.error("failed to place spacer left of system block; giving up")
+        guard await placeSpacerLeftOfSystemBlock() else {
+            Self.log.error("failed to place spacer left of system block; not expanding")
             return
         }
 
-        // Шаг 2: разворот и проверка с автооткатом.
-        for attempt in 1...3 {
-            spacer.isExpanded = true
-            try? await Task.sleep(for: .milliseconds(500))
+        // Fresh invariant re-check right before expanding.
+        guard
+            let spacerX = newestSpacerWindow()?.frame.minX,
+            let minSystemX = visibleSystemMinX(),
+            spacerX < minSystemX
+        else {
+            Self.log.error("invariant re-check failed; not expanding")
+            return
+        }
 
-            let fresh = WindowInfo.statusItemWindows()
-            let lostSystem = baseline.filter { item in
-                !(fresh.first { $0.windowID == item.window.windowID }?.isOnScreen ?? false)
-            }
-            if lostSystem.isEmpty {
-                isEngaged = true
-                Self.log.info("engaged: spacer expanded at position \(self.spacer.preferredPosition)")
-                return
-            }
+        spacer.isExpanded = true
+        isEngaged = true
+        Self.log.info("engaged: spacer expanded from x=\(spacerX), leftmost system x=\(minSystemX)")
 
-            Self.log.error("attempt \(attempt): expansion displaced \(lostSystem.count) system item(s); rolling back")
+        // Post-expand sanity check (the invariant should make harm impossible).
+        try? await Task.sleep(for: .milliseconds(600))
+        let fresh = WindowInfo.statusItemWindows()
+        let lost = lister.currentItems().filter { item in
+            item.isSystem && !(fresh.first { $0.windowID == item.window.windowID }?.isOnScreen ?? true)
+        }
+        if !lost.isEmpty {
+            Self.log.fault("post-expand check: \(lost.count) system item(s) went offscreen — collapsing")
             spacer.isExpanded = false
-            try? await Task.sleep(for: .milliseconds(500))
+            isEngaged = false
         }
-        Self.log.error("giving up: could not expand without displacing system items")
     }
 
     func disengage() {
         spacer.isExpanded = false
         isEngaged = false
+    }
+
+    // MARK: - Placement
+
+    /// The leftmost visible system icon.
+    private func visibleSystemMinX() -> CGFloat? {
+        lister.currentItems()
+            .filter { $0.window.isOnScreen && $0.isSystem }
+            .map(\.window.frame.minX)
+            .min()
+    }
+
+    /// The spacer's window: after recreation the old item's window may linger
+    /// in the list under the same name for a moment — take the newest one
+    /// (window IDs grow monotonically).
+    private func newestSpacerWindow() -> WindowInfo? {
+        WindowInfo.statusItemWindows()
+            .filter { $0.name == SpacerItem.autosaveName }
+            .max { $0.windowID < $1.windowID }
+    }
+
+    /// Recreates the collapsed spacer with a growing position until it sits
+    /// left of the system block. A collapsed (4 pt) spacer pushes nothing,
+    /// so the attempts themselves are harmless.
+    private func placeSpacerLeftOfSystemBlock() async -> Bool {
+        let margin: CGFloat = 20
+        for _ in 0..<10 {
+            guard let target = visibleSystemMinX() else { return false }
+            guard let spacerWindow = newestSpacerWindow() else { return false }
+            let spacerX = spacerWindow.frame.minX
+            if spacerX < target - margin { return true }
+
+            let overshoot = spacerX - target
+            spacer.recreate(preferredPosition: spacer.preferredPosition + max(100, overshoot + 120))
+            _ = await waitForNewSpacerWindow(previousID: spacerWindow.windowID)
+        }
+        return false
+    }
+
+    /// Waits for the recreated spacer's window to appear (up to ~1.2 s).
+    private func waitForNewSpacerWindow(previousID: CGWindowID) async -> WindowInfo? {
+        for _ in 0..<8 {
+            try? await Task.sleep(for: .milliseconds(150))
+            if let window = newestSpacerWindow(), window.windowID != previousID {
+                return window
+            }
+        }
+        return newestSpacerWindow()
     }
 }

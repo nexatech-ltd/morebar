@@ -1,8 +1,8 @@
 #!/bin/zsh
-# Собирает MoreBar.app из SwiftPM-бинаря и подписывает его.
+# Builds MoreBar.app from the SwiftPM binary and signs it.
 #
-#   Scripts/build-app.sh              # подпись Developer ID (стабильные TCC-права между сборками)
-#   SIGN_IDENTITY=- Scripts/build-app.sh   # ad-hoc подпись
+#   Scripts/build-app.sh                   # Developer ID signing (stable TCC grants across builds)
+#   SIGN_IDENTITY=- Scripts/build-app.sh   # ad-hoc signing
 #   VERSION=0.2.0 Scripts/build-app.sh
 set -euo pipefail
 

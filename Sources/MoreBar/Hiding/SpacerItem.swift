@@ -1,17 +1,17 @@
 import AppKit
 
-/// Невидимая «распорка»: NSStatusItem, который в развёрнутом состоянии
-/// растягивается до 10 000 pt и выталкивает все иконки левее себя за край
-/// экрана (окна остаются живыми, но становятся off-screen).
-/// Приём из Hidden Bar/Ice: Ice ControlItem.Lengths.expanded == 10_000 (MIT),
-/// работает на macOS 26.
+/// The invisible "spacer": an NSStatusItem that, when expanded, stretches to
+/// 10,000 pt and pushes every icon to its left off the screen edge (their
+/// windows stay alive but become off-screen).
+/// Trick from Hidden Bar/Ice: Ice ControlItem.Lengths.expanded == 10_000 (MIT),
+/// still works on macOS 26.
 @MainActor
 final class SpacerItem {
     static nonisolated let autosaveName = "MoreBar.spacer"
 
     private enum Lengths {
-        /// Тонкая «прощупываемая» длина: окно существует и имеет читаемый x,
-        /// но визуально незаметно.
+        /// A thin probe length: the window exists and has a readable x,
+        /// yet is visually unnoticeable.
         static let collapsed: CGFloat = 4
         static let expanded: CGFloat = 10_000
     }
@@ -33,13 +33,13 @@ final class SpacerItem {
         statusItem = Self.makeStatusItem()
     }
 
-    /// Пересоздаёт распорку с новой предпочитаемой позицией
-    /// (большее значение — левее). На macOS 26 позиция итема применяется
-    /// только при создании, поэтому итем приходится пересоздавать.
+    /// Recreates the spacer with a new preferred position (larger value =
+    /// further left). On macOS 26 the position is applied only at creation
+    /// time, hence the recreation dance.
     func recreate(preferredPosition: CGFloat) {
         NSStatusBar.system.removeStatusItem(statusItem)
-        // Удаление статус-итема стирает сохранённую позицию — перезаписываем
-        // после него (приём из Ice ControlItem.removeStatusItem).
+        // Removing a status item wipes its stored position — rewrite it
+        // afterwards (trick from Ice ControlItem.removeStatusItem).
         StatusItemDefaults[.preferredPosition, Self.autosaveName] = preferredPosition
         StatusItemDefaults[.visible, Self.autosaveName] = true
         StatusItemDefaults[.visibleCC, Self.autosaveName] = true

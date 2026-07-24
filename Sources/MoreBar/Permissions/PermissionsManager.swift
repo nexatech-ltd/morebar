@@ -1,15 +1,16 @@
 import AppKit
 import ScreenCaptureKit
+import os
 
-/// Два права, без которых менеджер меню-бара не работает:
-///  • Универсальный доступ (Accessibility) — синтетические клики/перемещения
-///    чужих иконок и AX-резолвинг их источников;
-///  • Запись экрана (Screen Recording) — снимки спрятанных иконок и чтение
-///    имён чужих окон.
+/// The two permissions a menu bar manager cannot live without:
+///  - Accessibility: synthetic clicks/moves of other apps' icons and AX-based
+///    source resolution;
+///  - Screen Recording: snapshots of hidden icons and reading other apps'
+///    window names.
 ///
-/// Особенности macOS 26: CGRequestScreenCaptureAccess() не показывает промпт
-/// (сломан с macOS 15) — вместо него дёргаем SCShareableContent; грант Записи
-/// экрана вступает в силу только после перезапуска приложения.
+/// macOS 26 quirks: CGRequestScreenCaptureAccess() shows no prompt (broken
+/// since macOS 15) — we poke SCShareableContent instead; a Screen Recording
+/// grant only takes effect after the app is relaunched.
 @MainActor
 final class PermissionsManager {
     enum Status {
@@ -19,8 +20,9 @@ final class PermissionsManager {
         case missingBoth
     }
 
-    /// Вызывается, когда оба права на месте. `freshlyGranted` — права выданы
-    /// только что (в этой сессии, через поллинг), а не были с прошлого запуска.
+    /// Called once both permissions are in place. `freshlyGranted` means they
+    /// were granted just now (this session, via polling) rather than being
+    /// present since the previous launch.
     var onGranted: ((_ freshlyGranted: Bool) -> Void)?
 
     private var pollTimer: Timer?
@@ -42,21 +44,29 @@ final class PermissionsManager {
         }
     }
 
-    /// Запрашивает недостающие права (системные промпты) и начинает поллинг.
-    /// Когда оба права выданы, зовёт onGranted (один раз).
+    private static let log = Logger(subsystem: "com.nexatech.MoreBar", category: "permissions")
+
+    /// Requests any missing permissions (system prompts) and starts polling.
+    /// Calls onGranted (once) when both are in place.
     func requestIfNeeded() {
+        Self.log.info("permissions: AX=\(Self.accessibilityGranted) SR-preflight=\(Self.screenRecordingGranted)")
         guard Self.status != .granted else {
+            Self.log.info("both permissions report granted; needsRelaunch=\(Self.screenRecordingNeedsRelaunch)")
             onGranted?(false)
             return
         }
         if !Self.accessibilityGranted {
+            Self.log.info("prompting for Accessibility")
             let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
             AXIsProcessTrustedWithOptions(options)
         }
         if !Self.screenRecordingGranted {
-            // Триггерит системный промпт «Запись экрана» и появление
-            // приложения в списке System Settings.
-            SCShareableContent.getWithCompletionHandler { _, _ in }
+            // Triggers the system Screen Recording prompt and makes the app
+            // appear in the System Settings list.
+            Self.log.info("requesting Screen Recording via SCShareableContent")
+            SCShareableContent.getWithCompletionHandler { content, error in
+                Self.log.info("SCShareableContent result: windows=\(content?.windows.count ?? -1) error=\(String(describing: error))")
+            }
         }
         startPolling()
     }
@@ -83,8 +93,9 @@ final class PermissionsManager {
         NSWorkspace.shared.open(url)
     }
 
-    /// Запись экрана применяется только после перезапуска — этим и пользуемся:
-    /// право есть в TCC, но окна ещё «не читаются» → нужен relaunch.
+    /// A Screen Recording grant only applies after a relaunch — we use that:
+    /// the right is present in TCC, but windows are still "unreadable"
+    /// in this process, so a relaunch is required.
     static func relaunch() {
         let url = Bundle.main.bundleURL
         let configuration = NSWorkspace.OpenConfiguration()
@@ -96,9 +107,9 @@ final class PermissionsManager {
         }
     }
 
-    /// Право «Запись экрана» выдано, но ещё не действует в этом процессе
-    /// (типичное состояние сразу после гранта) — признак: preflight true,
-    /// а имена чужих окон не читаются.
+    /// Screen Recording is granted but not yet effective in this process
+    /// (the usual state right after granting) — detected as: preflight true,
+    /// yet other apps' window names are unreadable.
     static var screenRecordingNeedsRelaunch: Bool {
         guard screenRecordingGranted else { return false }
         let readable = WindowInfo.statusItemWindows()

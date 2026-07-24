@@ -1,10 +1,11 @@
 import Foundation
 
-/// Доступ к системным UserDefaults-ключам NSStatusItem
-/// ("NSStatusItem Preferred Position <autosaveName>" и др.).
-/// Позиция измеряется в поинтах от правого края секции статус-итемов:
-/// 0 — правее всех сторонних, большее значение — левее.
-/// Референс: Ice, ControlItem.swift (MIT).
+/// Access to the system NSStatusItem UserDefaults keys
+/// ("NSStatusItem Preferred Position <autosaveName>" and friends).
+/// The position is measured in points from the right edge of the status
+/// item section: 0 is rightmost among third-party items; larger values
+/// place the item further left.
+/// Reference: Ice, ControlItem.swift (MIT).
 enum StatusItemDefaults {
     struct Key<Value> {
         let rawValue: String
@@ -15,7 +16,7 @@ enum StatusItemDefaults {
 
         static var preferredPosition: Key<CGFloat> { .init(rawValue: "Preferred Position") }
         static var visible: Key<Bool> { .init(rawValue: "Visible") }
-        // Новый ключ macOS 26: видимость итема в системном меню-баре, управляемом Control Center.
+        // New macOS 26 key: item visibility in the Control-Center-managed menu bar.
         static var visibleCC: Key<Bool> { .init(rawValue: "VisibleCC") }
     }
 

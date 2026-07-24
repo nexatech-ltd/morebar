@@ -1,43 +1,44 @@
 import AppKit
 
-/// Модель иконки меню-бара: окно + разрешённый процесс-источник.
+/// A menu bar item: its window plus the resolved source process.
 struct MenuBarItem {
     let window: WindowInfo
-    /// PID приложения, создавшего итем (см. SourcePIDResolver); nil — не определён.
+    /// PID of the app that created the item (see SourcePIDResolver); nil if unresolved.
     let sourcePID: pid_t?
 
-    /// Приложение-источник.
+    /// The application that created the item.
     var sourceApp: NSRunningApplication? {
         sourcePID.flatMap(NSRunningApplication.init(processIdentifier:))
     }
 
-    /// Наши собственные итемы (иконка «⋯» и распорка).
+    /// Our own items (the "…" icon and the spacer).
     var isOwnItem: Bool {
         window.name == StatusIconController.autosaveName
             || window.name == SpacerItem.autosaveName
             || sourcePID == ProcessInfo.processInfo.processIdentifier
     }
 
-    /// Окна-клоны, создаваемые Tahoe для системного управления итемами, —
-    /// не настоящие иконки, в панели не участвуют.
+    /// Clone windows that Tahoe creates for system-managed item handling —
+    /// not real icons, excluded from the second bar.
     var isSystemClone: Bool {
         window.name == "System Status Item Clone"
     }
 
-    /// Системная ли это иконка (остаётся в верхнем баре) или сторонняя
-    /// (прячется во второй бар MoreBar).
+    /// Whether this is a system icon (stays in the top bar) or a third-party
+    /// one (gets tucked into the MoreBar second bar).
     ///
-    /// TODO(user): правило классификации — ваше решение (5–10 строк).
-    /// Договорённость: НИКАКОГО хардкода имён приложений; универсальный
-    /// критерий — где живёт бандл приложения-источника (`sourceApp?.bundleURL`).
-    /// Подумайте о граничных случаях:
-    ///   • sourcePID == nil (AX не смог определить источник) — прятать или нет?
-    ///   • bundleURL == nil (агенты без бандла);
-    ///   • /System/Library/… против /System/Applications/… (Apple-приложения
-    ///     вроде Weather тоже ставят иконки — они «системные» или нет?)
-    /// Безопасный дефолт: не уверены — считаем системной (не прячем).
+    /// No app-name hardcoding by design. The rule is purely structural:
+    ///  - unresolved source (AX could not find the creator) -> treat as system;
+    ///    never hide what we don't understand;
+    ///  - no bundle URL (bare agents/daemons) -> system;
+    ///  - bundle lives in /System/Library/... (Control Center, system agents)
+    ///    -> system;
+    ///  - everything else -> third-party and hideable. Note that Apple's own
+    ///    user-facing apps under /System/Applications (Weather, Podcasts...)
+    ///    behave like regular utilities, so they are intentionally hideable.
     var isSystem: Bool {
-        // ЗАГЛУШКА до вашего правила: всё считается системным, ничего не прячется.
-        return true
+        guard sourcePID != nil else { return true }
+        guard let bundlePath = sourceApp?.bundleURL?.path else { return true }
+        return bundlePath.hasPrefix("/System/Library/")
     }
 }

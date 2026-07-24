@@ -1,21 +1,21 @@
 import AppKit
 
 extension NSScreen {
-    /// Высота меню-бара этого экрана (на экранах с чёлкой = safeAreaInsets.top).
+    /// Menu bar height on this screen (equals safeAreaInsets.top on notched screens).
     var menuBarHeight: CGFloat {
         safeAreaInsets.top > 0 ? safeAreaInsets.top : NSStatusBar.system.thickness + 2
     }
 
-    /// Прямоугольник чёлки в CG-координатах (origin в левом верхнем углу),
-    /// nil на экранах без чёлки.
+    /// The notch rectangle in CG coordinates (origin at the top-left corner);
+    /// nil on screens without a notch.
     var notchRect: CGRect? {
         guard
             safeAreaInsets.top > 0,
             let left = auxiliaryTopLeftArea,
             let right = auxiliaryTopRightArea
         else { return nil }
-        // auxiliary-области — в Cocoa-координатах (origin слева внизу);
-        // переводим в CG: y от верха экрана.
+        // The auxiliary areas are in Cocoa coordinates (origin bottom-left);
+        // convert to CG: y measured from the top of the screen.
         return CGRect(
             x: left.maxX,
             y: 0,

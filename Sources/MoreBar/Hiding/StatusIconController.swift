@@ -1,8 +1,8 @@
 import AppKit
 
-/// Единственная видимая иконка MoreBar: «⋯» в системном баре.
-/// ЛКМ (mouseDown, как у системных меню) — тумблер панели второго бара.
-/// ПКМ — маленькое меню с единственным пунктом Quit.
+/// The only visible MoreBar icon: "…" in the system menu bar.
+/// Left click (mouseDown, matching system menus) toggles the second bar.
+/// Right click shows a tiny menu with a single Quit entry.
 @MainActor
 final class StatusIconController {
     static nonisolated let autosaveName = "MoreBar.icon"
@@ -10,13 +10,14 @@ final class StatusIconController {
     private let statusItem: NSStatusItem
     var onToggle: (() -> Void)?
 
-    /// Подсветка иконки, пока открыт второй бар (как у активного пункта меню-бара).
+    /// Icon highlight while the second bar is open (like an active menu bar item).
     var isHighlighted: Bool = false {
         didSet { statusItem.button?.highlight(isHighlighted) }
     }
 
     init() {
-        // Позиция 0 — правее всех сторонних иконок, вплотную к системной секции.
+        // Position 0: to the right of all third-party icons, adjacent to the
+        // system section.
         if StatusItemDefaults[.preferredPosition, Self.autosaveName] == nil {
             StatusItemDefaults[.preferredPosition, Self.autosaveName] = 0
         }
@@ -49,7 +50,7 @@ final class StatusIconController {
     private func showQuitMenu() {
         let menu = NSMenu()
         let quit = NSMenuItem(
-            title: NSLocalizedString("Quit MoreBar", comment: ""),
+            title: "Quit MoreBar",
             action: #selector(NSApplication.terminate(_:)),
             keyEquivalent: "q"
         )
@@ -60,7 +61,7 @@ final class StatusIconController {
         }
     }
 
-    /// Экранный фрейм окна нашей иконки — для позиционирования панели под ней.
+    /// Screen frame of our icon's window — used to anchor the panel.
     var screenFrame: NSRect? {
         statusItem.button?.window?.frame
     }

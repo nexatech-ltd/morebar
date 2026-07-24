@@ -1,19 +1,21 @@
 import AppKit
 import SwiftUI
 
-/// Управляет жизненным циклом второго бара: открытие/закрытие, обновление
-/// снимков (при открытии и каждые 2 с), закрытие по клику вне панели и Esc.
+/// Owns the second bar lifecycle: open/close, snapshot refresh (on open and
+/// every 2 s while open), dismissal on outside click and Esc.
 @MainActor
 final class PanelController {
     private let panel = SecondBarPanel()
     private let lister: MenuBarItemLister
     private let capturer = ItemImageCapturer()
 
-    /// Форвард клика в реальную иконку (подключается в M6).
+    /// Forwards a click to the real icon (wired up in M6).
     var onItemClick: (CGWindowID, _ rightClick: Bool) -> Void = { _, _ in }
     var onVisibilityChange: (Bool) -> Void = { _ in }
 
     private(set) var isVisible = false
+    /// Right edge of the "…" icon — the panel anchor, captured at open time.
+    private var anchorRightX: CGFloat?
     private var refreshTimer: Timer?
     private var outsideClickMonitor: Any?
     private var escMonitor: Any?
@@ -27,12 +29,12 @@ final class PanelController {
     }
 
     func open(iconFrame: CGRect?) {
-        guard !isVisible, let screen = NSScreen.main else { return }
+        guard !isVisible else { return }
         isVisible = true
+        anchorRightX = iconFrame?.maxX
         onVisibilityChange(true)
 
         Task { await refreshContent() }
-        panel.show(alignedTo: iconFrame, on: screen)
 
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { _ in
             Task { @MainActor [weak self] in await self?.refreshContent() }
@@ -47,7 +49,7 @@ final class PanelController {
         refreshTimer?.invalidate()
         refreshTimer = nil
         removeMonitors()
-        panel.hide()
+        panel.dismiss()
     }
 
     // MARK: - Content
@@ -92,7 +94,7 @@ final class PanelController {
         view.onOpenAccessibility = { PermissionsManager.openAccessibilitySettings() }
         view.onOpenScreenRecording = { PermissionsManager.openScreenRecordingSettings() }
         view.onRelaunch = { PermissionsManager.relaunch() }
-        panel.setGlassContent(view, height: barHeight)
+        panel.present(view, height: barHeight, anchorRightX: anchorRightX, on: screen)
     }
 
     // MARK: - Dismissal
@@ -100,10 +102,10 @@ final class PanelController {
     private func installMonitors() {
         outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown]
-        ) { [weak self] event in
+        ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self, self.isVisible else { return }
-                // Глобальные координаты клика против фрейма панели.
+                // Global click location vs the panel frame.
                 if !self.panel.frame.contains(NSEvent.mouseLocation) {
                     self.close()
                 }

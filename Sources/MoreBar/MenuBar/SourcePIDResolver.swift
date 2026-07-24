@@ -1,29 +1,29 @@
 import AppKit
 import ApplicationServices
 
-/// Определяет процесс-«источник» окна статус-итема.
+/// Resolves the "source" process of a status item window.
 ///
-/// До macOS 26 хватало kCGWindowOwnerPID. На Tahoe окна итемов приложений,
-/// собранных с SDK 26, хостит Control Centre, поэтому истинного создателя
-/// ищем через Accessibility: у каждого запущенного приложения берём элемент
-/// AXExtrasMenuBar (его секцию статус-итемов) и сравниваем центры фреймов
-/// детей с центром окна (допуск 1 pt).
-/// Порт идеи Ice MenuBarItemService/SourcePIDCache.swift (MIT).
+/// Before macOS 26, kCGWindowOwnerPID was enough. On Tahoe the windows of
+/// items whose apps are built with SDK 26 are hosted by Control Centre, so
+/// the true creator is found via Accessibility: take each running app's
+/// AXExtrasMenuBar element (its status item section) and match its children's
+/// frame centers against the window's center (1 pt tolerance).
+/// Port of the idea from Ice MenuBarItemService/SourcePIDCache.swift (MIT).
 final class SourcePIDResolver: @unchecked Sendable {
     private let lock = NSLock()
     private var cachedPIDs: [CGWindowID: pid_t] = [:]
     private var extrasBars: [pid_t: AXUIElement] = [:]
 
-    /// PID Control Centre — единственный «владелец-посредник», для окон
-    /// которого требуется AX-резолвинг.
+    /// Control Centre's PID — the only "proxy owner" whose windows need
+    /// AX-based source resolution.
     static func controlCenterPID() -> pid_t? {
         NSRunningApplication.runningApplications(
             withBundleIdentifier: "com.apple.controlcenter"
         ).first?.processIdentifier
     }
 
-    /// Источник окна: для окон со «своим» владельцем — ownerPID,
-    /// для CC-хостируемых — поиск через AX (nil, если не нашли).
+    /// The window's source: ownerPID for self-owned windows; an AX lookup
+    /// for CC-hosted ones (nil when unresolved).
     func resolveSourcePID(for window: WindowInfo, controlCenterPID: pid_t?) -> pid_t? {
         guard window.ownerPID == controlCenterPID else {
             return window.ownerPID

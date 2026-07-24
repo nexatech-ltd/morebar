@@ -1,13 +1,13 @@
 import AppKit
 import ScreenCaptureKit
 
-/// Снимки окон иконок через ScreenCaptureKit.
-/// Ключевое: SCContentFilter(desktopIndependentWindow:) снимает окно
-/// независимо от его положения — в т.ч. запаркованные за экраном иконки
-/// (проверено на macOS 26.5). Требует права «Запись экрана».
+/// Captures item window images via ScreenCaptureKit.
+/// Key point: SCContentFilter(desktopIndependentWindow:) captures a window
+/// regardless of its position — including icons parked off screen (verified
+/// on macOS 26.5). Requires the Screen Recording permission.
 final class ItemImageCapturer: Sendable {
-    /// Снимает все переданные окна; вернувшийся словарь может быть неполным
-    /// (окно исчезло, capture не удался).
+    /// Captures all given windows; the returned dictionary may be incomplete
+    /// (a window disappeared, a capture failed).
     func captureImages(for windows: [WindowInfo]) async -> [CGWindowID: NSImage] {
         guard
             let content = try? await SCShareableContent.excludingDesktopWindows(

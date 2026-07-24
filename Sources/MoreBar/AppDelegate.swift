@@ -32,7 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.statusIcon?.isHighlighted = visible
         }
         panel.onItemClick = { windowID, rightClick in
-            // Клик-прокси подключается в M6.
+            // Click forwarding is wired up in M6.
             _ = windowID
             _ = rightClick
         }
@@ -40,14 +40,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         permissions.onGranted = { [weak self] freshlyGranted in
             guard let self else { return }
             if PermissionsManager.screenRecordingNeedsRelaunch {
-                // Запись экрана применяется только с перезапуска процесса.
-                // Свежий грант — перезапускаемся сами; иначе кнопка в панели.
+                // Screen Recording only takes effect after a process restart.
+                // Fresh grant: relaunch ourselves; otherwise the panel offers a button.
                 if freshlyGranted {
                     PermissionsManager.relaunch()
                 }
                 return
             }
-            Task { await self.hiding?.engage() }
+            self.startReconcileTimer()
         }
         permissions.requestIfNeeded()
     }
@@ -56,10 +56,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hiding?.disengage()
     }
 
-    /// Фрейм окна нашей иконки в CG-координатах — якорь для панели.
-    /// На macOS 26 окно хостит Control Centre, поэтому ищем его по имени
-    /// в CGWindowList (доступно после гранта «Записи экрана»), с фолбэком
-    /// на локальное окно кнопки.
+    /// Hiding is an idempotent reconcile pass every 5 s: it picks up
+    /// third-party icons that appear after launch (newly started apps).
+    private var reconcileTimer: Timer?
+    private func startReconcileTimer() {
+        guard reconcileTimer == nil else { return }
+        Task { await hiding?.engage() }
+        reconcileTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { _ in
+            Task { @MainActor [weak self] in await self?.hiding?.engage() }
+        }
+    }
+
+    /// Frame of our icon's window in CG coordinates — the panel anchor.
+    /// On macOS 26 the window is hosted by Control Centre, so we look it up
+    /// by name in CGWindowList (available once Screen Recording is granted),
+    /// falling back to the local button window.
     private func iconFrameCG() -> CGRect? {
         if let window = WindowInfo.statusItemWindows()
             .first(where: { $0.name == StatusIconController.autosaveName }) {
@@ -68,8 +79,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return statusIcon?.screenFrame
     }
 
-    /// Автозагрузка при входе: только для копии, установленной в /Applications,
-    /// чтобы dev-сборки из каталога проекта не прописывались в Login Items.
+    /// Login item registration: only for the copy installed in /Applications,
+    /// so dev builds from the project directory never enroll in Login Items.
     private func registerLoginItemIfNeeded() {
         guard Bundle.main.bundlePath.hasPrefix("/Applications/") else { return }
         if SMAppService.mainApp.status != .enabled {

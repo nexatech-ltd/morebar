@@ -1,17 +1,19 @@
 import AppKit
 
-/// Снимок окна статус-итема из CGWindowList.
-/// Координаты — CG (начало в левом верхнем углу главного экрана).
+/// A snapshot of a status item window taken from CGWindowList.
+/// Coordinates are CG (origin at the top-left corner of the main screen).
 struct WindowInfo: Sendable {
     let windowID: CGWindowID
     let frame: CGRect
     let isOnScreen: Bool
     let ownerPID: pid_t
-    /// Для окон, хостируемых Control Centre (macOS 26), имя = autosaveName итема.
-    /// Чтение имён чужих окон требует разрешения «Запись экрана».
+    /// For windows hosted by Control Centre (macOS 26) the name equals the
+    /// item's autosaveName. Reading other apps' window names requires the
+    /// Screen Recording permission.
     let name: String?
 
-    /// Все окна на слое статус-итемов (kCGStatusWindowLevel), включая off-screen.
+    /// All windows on the status item layer (kCGStatusWindowLevel),
+    /// including off-screen ones.
     static func statusItemWindows() -> [WindowInfo] {
         let statusLayer = Int(CGWindowLevelForKey(.statusWindow))
         let list = CGWindowListCopyWindowInfo([], kCGNullWindowID) as? [[String: Any]] ?? []
@@ -40,7 +42,7 @@ struct WindowInfo: Sendable {
         }
     }
 
-    /// Свежий фрейм этого окна (nil — окно исчезло).
+    /// The window's current frame (nil if the window is gone).
     func currentFrame() -> CGRect? {
         let list = CGWindowListCopyWindowInfo([], kCGNullWindowID) as? [[String: Any]] ?? []
         for info in list where (info[kCGWindowNumber as String] as? CGWindowID) == windowID {

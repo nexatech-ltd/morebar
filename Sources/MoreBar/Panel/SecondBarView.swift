@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// Содержимое второго бара: ряд «живых» снимков спрятанных иконок.
-/// Никакого собственного фона — стекло даёт NSGlassEffectView снаружи.
+/// Second bar content: a row of "live" snapshots of the hidden icons.
+/// No background of its own — the glass comes from the enclosing
+/// NSGlassEffectView.
 struct SecondBarView: View {
     struct Entry: Identifiable {
         let id: CGWindowID
@@ -35,7 +36,7 @@ struct SecondBarView: View {
                 .padding(.horizontal, 6)
 
             case .empty:
-                Text("Нет спрятанных иконок")
+                Text("No hidden icons")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 14)
@@ -44,16 +45,16 @@ struct SecondBarView: View {
                 HStack(spacing: 10) {
                     Image(systemName: "lock.shield")
                         .foregroundStyle(.secondary)
-                    Text("MoreBar нужны разрешения:")
+                    Text("MoreBar needs permissions:")
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                     if !accessibility {
-                        Button("Универсальный доступ", action: onOpenAccessibility)
+                        Button("Accessibility", action: onOpenAccessibility)
                             .buttonStyle(.link)
                             .font(.system(size: 12))
                     }
                     if !screenRecording {
-                        Button("Запись экрана", action: onOpenScreenRecording)
+                        Button("Screen Recording", action: onOpenScreenRecording)
                             .buttonStyle(.link)
                             .font(.system(size: 12))
                     }
@@ -62,10 +63,10 @@ struct SecondBarView: View {
 
             case .needsRelaunch:
                 HStack(spacing: 10) {
-                    Text("Права выданы")
+                    Text("Permissions granted")
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
-                    Button("Перезапустить MoreBar", action: onRelaunch)
+                    Button("Relaunch MoreBar", action: onRelaunch)
                         .buttonStyle(.link)
                         .font(.system(size: 12))
                 }
@@ -77,8 +78,8 @@ struct SecondBarView: View {
     }
 }
 
-/// Одна иконка: снимок в натуральную величину, hover-подсветка как у
-/// системных итемов, левый/правый клик.
+/// A single icon: the snapshot at natural size, hover highlight matching
+/// system items, left/control-click handling.
 private struct ItemCell: View {
     let entry: SecondBarView.Entry
     let barHeight: CGFloat
