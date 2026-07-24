@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let permissions = PermissionsManager()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        terminateOlderInstances()
         registerLoginItemIfNeeded()
 
         let spacer = SpacerItem()
@@ -88,6 +89,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return window.frame
         }
         return statusIcon?.screenFrame
+    }
+
+    /// The self-relaunch flow (createsNewApplicationInstance) can leave the
+    /// old instance alive but inert — no status items, no timers. The newest
+    /// instance is the source of truth: force-quit anything older.
+    private func terminateOlderInstances() {
+        let myPID = ProcessInfo.processInfo.processIdentifier
+        let myLaunch = NSRunningApplication.current.launchDate ?? .distantFuture
+        let others = NSRunningApplication.runningApplications(
+            withBundleIdentifier: Bundle.main.bundleIdentifier ?? "com.nexatech.MoreBar"
+        )
+        for app in others where app.processIdentifier != myPID {
+            if (app.launchDate ?? .distantPast) < myLaunch {
+                app.forceTerminate()
+            }
+        }
     }
 
     /// Login item registration: only for the copy installed in /Applications,
