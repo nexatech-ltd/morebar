@@ -17,13 +17,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let spacer = SpacerItem()
         let statusIcon = StatusIconController()
         let lister = MenuBarItemLister()
-        let hiding = HidingController(spacer: spacer, lister: lister)
+        let forwarder = ItemClickForwarder(lister: lister)
+        let hiding = HidingController(spacer: spacer, lister: lister, forwarder: forwarder)
         let panel = PanelController(lister: lister)
         self.spacer = spacer
         self.statusIcon = statusIcon
         self.lister = lister
+        self.forwarder = forwarder
         self.hiding = hiding
         self.panel = panel
+        hiding.isPanelVisible = { [weak panel] in panel?.isVisible ?? false }
 
         statusIcon.onToggle = { [weak self] in
             guard let self else { return }
@@ -32,8 +35,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.onVisibilityChange = { [weak self] visible in
             self?.statusIcon?.isHighlighted = visible
         }
-        let forwarder = ItemClickForwarder(lister: lister)
-        self.forwarder = forwarder
         panel.onItemClick = { [weak self] windowID, rightClick in
             // Close the panel just before forwarding (Ice does the same) so
             // the item's own menu does not fight our panel for the screen.

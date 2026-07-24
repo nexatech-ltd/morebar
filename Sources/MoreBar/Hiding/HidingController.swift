@@ -20,19 +20,29 @@ final class HidingController {
 
     private let spacer: SpacerItem
     private let lister: MenuBarItemLister
+    /// Moves stray visible items behind the spacer (Ice-style drag events).
+    private let forwarder: ItemClickForwarder
+    /// Skip enforcement while the panel is open so user clicks always win.
+    var isPanelVisible: () -> Bool = { false }
     /// The spacer is expanded from a proven-safe position.
     private(set) var isEngaged = false
     private var inProgress = false
 
-    init(spacer: SpacerItem, lister: MenuBarItemLister) {
+    init(spacer: SpacerItem, lister: MenuBarItemLister, forwarder: ItemClickForwarder) {
         self.spacer = spacer
         self.lister = lister
+        self.forwarder = forwarder
     }
 
-    /// Idempotent: safe to call every few seconds. Expands the spacer when
-    /// there is something to hide and doing so is provably safe.
+    /// Idempotent reconcile pass: safe to call every few seconds.
+    ///
+    /// Two mechanisms combine to hide everything non-system:
+    ///  - the expanded spacer keeps pushing whatever sits to its left;
+    ///  - on macOS 26 third-party icons can interleave with system ones and
+    ///    end up to the spacer's RIGHT, out of its reach — those are dragged
+    ///    behind the spacer one by one with synthetic move events.
     func engage() async {
-        guard !isEngaged, !inProgress else { return }
+        guard !inProgress else { return }
         inProgress = true
         defer { inProgress = false }
 
@@ -44,36 +54,97 @@ final class HidingController {
             return
         }
 
-        guard await placeSpacerLeftOfSystemBlock() else {
-            Self.log.error("failed to place spacer left of system block; not expanding")
-            return
+        if !isEngaged {
+            guard await expandSpacerSafely() else { return }
         }
+        guard isEngaged else { return }
 
-        // Fresh invariant re-check right before expanding.
-        guard
-            let spacerX = newestSpacerWindow()?.frame.minX,
-            let minSystemX = visibleSystemMinX(),
-            spacerX < minSystemX
-        else {
-            Self.log.error("invariant re-check failed; not expanding")
-            return
+        // Enforcement: drag visible non-system items behind the spacer.
+        guard !forwarder.isBusy, !isPanelVisible() else { return }
+        guard let spacerItem = newestSpacerWindow().map({
+            MenuBarItem(window: $0, sourcePID: ProcessInfo.processInfo.processIdentifier)
+        }) else { return }
+
+        for item in visibleHideable {
+            guard !forwarder.isBusy, !isPanelVisible() else { return }
+            do {
+                try await forwarder.move(item: item, to: .leftOfItem(spacerItem))
+                Self.log.info("tucked away visible item \(item.window.windowID) (\(item.sourceApp?.localizedName ?? "?", privacy: .public))")
+            } catch {
+                Self.log.error("failed to tuck item \(item.window.windowID): \(error, privacy: .public)")
+            }
         }
+    }
 
-        spacer.isExpanded = true
-        isEngaged = true
-        Self.log.info("engaged: spacer expanded from x=\(spacerX), leftmost system x=\(minSystemX)")
+    /// Places and expands the spacer, CALIBRATING its order position.
+    ///
+    /// The spacer stays expanded for the app's whole lifetime once engaged:
+    /// on Tahoe, Control Centre DESTROYS the windows of naturally-overflowed
+    /// items (they become impossible to capture or click), while items held
+    /// off screen by an expanded spacer keep live windows. The expanded
+    /// spacer is what keeps the hidden icons alive.
+    ///
+    /// Geometry cannot prove the spacer's ORDER: a parked spacer window sits
+    /// under the notch with a meaningless x. So the order is calibrated
+    /// empirically: expand — if any visible system item gets pushed, collapse
+    /// (which restores it), bump the position one notch left, retry. The
+    /// converged position persists in UserDefaults, so calibration is a
+    /// one-time cost with a sub-second icon blink per attempt.
+    private func expandSpacerSafely() async -> Bool {
+        for attempt in 1...6 {
+            guard await placeSpacerLeftOfSystemBlock() else {
+                Self.log.error("failed to place spacer left of system block; not expanding")
+                return false
+            }
 
-        // Post-expand sanity check (the invariant should make harm impossible).
-        try? await Task.sleep(for: .milliseconds(600))
-        let fresh = WindowInfo.statusItemWindows()
-        let lost = lister.currentItems().filter { item in
-            item.isSystem && !(fresh.first { $0.windowID == item.window.windowID }?.isOnScreen ?? true)
-        }
-        if !lost.isEmpty {
-            Self.log.fault("post-expand check: \(lost.count) system item(s) went offscreen — collapsing")
+            // Baseline: only items visible BEFORE expansion can be harmed.
+            let baseline = lister.currentItems()
+                .filter { $0.window.isOnScreen && $0.isSystem }
+            guard !baseline.isEmpty else { return false }
+
+            spacer.isExpanded = true
+            try? await Task.sleep(for: .milliseconds(600))
+
+            // A system item counts as PUSHED only if its window travelled
+            // far left — dynamic items like NowPlaying hide by themselves
+            // in place, which is not our doing.
+            let fresh = WindowInfo.statusItemWindows()
+            let pushed = baseline.filter { item in
+                guard let now = fresh.first(where: { $0.windowID == item.window.windowID }) else {
+                    return false // window gone entirely (app/state change), not a push
+                }
+                return !now.isOnScreen && now.frame.minX < item.window.frame.minX - 100
+            }
+
+            if pushed.isEmpty {
+                isEngaged = true
+                Self.log.info("engaged on attempt \(attempt) at position \(self.spacer.preferredPosition)")
+                return true
+            }
+
+            Self.log.info("calibration attempt \(attempt): \(pushed.count) system item(s) pushed — collapsing and moving one notch left")
             spacer.isExpanded = false
-            isEngaged = false
+            await waitForRestore(of: pushed)
+            if let previousID = newestSpacerWindow()?.windowID {
+                spacer.recreate(preferredPosition: spacer.preferredPosition + 150)
+                _ = await waitForNewSpacerWindow(previousID: previousID)
+            }
         }
+        Self.log.error("calibration failed after 6 attempts; leaving the bar untouched")
+        return false
+    }
+
+    /// Waits until the given items are back on screen after a collapse.
+    private func waitForRestore(of items: [MenuBarItem]) async {
+        for _ in 0..<10 {
+            try? await Task.sleep(for: .milliseconds(200))
+            let fresh = WindowInfo.statusItemWindows()
+            let allBack = items.allSatisfy { item in
+                fresh.first { $0.windowID == item.window.windowID }?.isOnScreen ?? true
+            }
+            if allBack { return }
+        }
+        Self.log.error("some pushed items did not come back within 2 s")
     }
 
     func disengage() {

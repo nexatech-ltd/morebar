@@ -29,6 +29,16 @@ final class ItemClickForwarder {
     private var pendingRehide: PendingRehide?
     private var rehideTimer: Timer?
 
+    /// Number of move operations currently in flight (user-initiated or
+    /// enforcement moves from the hiding reconciler).
+    private var movesInFlight = 0
+
+    /// True while a forward/rehide cycle or a move is running — the hiding
+    /// reconciler must not fight over items during it.
+    var isBusy: Bool {
+        inProgress || pendingRehide != nil || movesInFlight > 0
+    }
+
     init(lister: MenuBarItemLister) {
         self.lister = lister
     }
@@ -38,7 +48,7 @@ final class ItemClickForwarder {
     /// Temporarily shows the hidden item with the given window, clicks it,
     /// and schedules its return to the hidden zone.
     func showAndClick(windowID: CGWindowID, button: CGMouseButton) async {
-        guard !inProgress else { return }
+        guard !inProgress, movesInFlight == 0 else { return }
         inProgress = true
         defer { inProgress = false }
 
@@ -200,6 +210,8 @@ final class ItemClickForwarder {
 
     /// Moves a menu bar item to the destination, retrying up to 5 times.
     func move(item: MenuBarItem, to destination: MoveDestination) async throws {
+        movesInFlight += 1
+        defer { movesInFlight -= 1 }
         try await waitForUserToPauseInput()
 
         if try itemHasCorrectPosition(item: item, for: destination) { return }

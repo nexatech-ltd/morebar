@@ -31,14 +31,13 @@ struct MenuBarItem {
     ///  - unresolved source (AX could not find the creator) -> treat as system;
     ///    never hide what we don't understand;
     ///  - no bundle URL (bare agents/daemons) -> system;
-    ///  - bundle lives in /System/Library/... (Control Center, system agents)
-    ///    -> system;
-    ///  - everything else -> third-party and hideable. Note that Apple's own
-    ///    user-facing apps under /System/Applications (Weather, Podcasts...)
-    ///    behave like regular utilities, so they are intentionally hideable.
+    ///  - the creating process ships with macOS (lives anywhere under
+    ///    /System/: Control Center agents, Spotlight, input sources, and
+    ///    built-in apps like Passwords) -> system, stays in the top bar;
+    ///  - everything else (anything installed by the user) -> hideable.
     var isSystem: Bool {
         guard sourcePID != nil else { return true }
         guard let bundlePath = sourceApp?.bundleURL?.path else { return true }
-        return bundlePath.hasPrefix("/System/Library/")
+        return bundlePath.hasPrefix("/System/")
     }
 }

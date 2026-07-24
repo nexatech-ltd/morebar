@@ -49,9 +49,15 @@ the file into the tap repository.
 The hard parts are ported from [Ice](https://github.com/jordanbaird/Ice)
 (MIT), branch `macos-26`:
 
-- hiding uses an expanding 10,000 pt `NSStatusItem` spacer, placed with an
-  iterative probe-and-verify dance (on macOS 26 system icons are movable, so
-  a mispositioned spacer would push Wi-Fi/Battery off screen — irreversibly);
+- hiding uses an expanding 10,000 pt `NSStatusItem` spacer whose ORDER in the
+  bar is calibrated empirically (expand → did a system icon get pushed? →
+  collapse, shift one notch left, retry; the converged position persists in
+  UserDefaults). Geometry cannot prove the order: parked windows report
+  meaningless coordinates. Visible third-party icons that interleave with
+  system ones are then dragged behind the spacer one by one. Crucially, the
+  spacer stays expanded for the app's lifetime: Control Centre DESTROYS the
+  windows of naturally-overflowed items (unclickable, uncapturable), while
+  items held off screen by the spacer keep live windows;
 - item moves/clicks are synthesized `CGEvent` pairs with special fields
   (including the private `0x33` windowID field), trampolined between a
   pid-specific tap and the session tap; all fragile constants live in
