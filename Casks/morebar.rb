@@ -3,7 +3,7 @@
 # drop this file into the tap repository.
 cask "morebar" do
   version "0.1.0"
-  sha256 "74ad7c333d576faadb35630858547bb7d19d822a1a7f67a29bafb66d88034a20"
+  sha256 "22127e98f6bf7f0d1e6d43f973d775bc881143cc7d7d4f1e1d8e07286aefe4fe"
 
   url "https://github.com/nexatech/morebar/releases/download/v#{version}/MoreBar-#{version}.dmg"
   name "MoreBar"
