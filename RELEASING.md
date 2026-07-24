@@ -15,7 +15,7 @@ The result is `dist/MoreBar-<version>.dmg`; `package-dmg.sh`/`notarize.sh` print
 
 ## 2. Publish on GitHub
 
-1. Create the public repo (e.g. `github.com/<org>/morebar`) and push this project.
+1. Create the public repo (e.g. `github.com/nexatech-ltd/morebar`) and push this project.
 2. Tag and release:
 
 ```sh
@@ -27,13 +27,13 @@ gh release create v0.2.0 dist/MoreBar-0.2.0.dmg --title "MoreBar 0.2.0" --notes 
 
 Homebrew installs casks from any GitHub repo named `homebrew-<tap>`:
 
-1. Create a public repo `github.com/<org>/homebrew-tap` with a `Casks/` directory.
+1. Create a public repo `github.com/nexatech-ltd/homebrew-tap` with a `Casks/` directory.
 2. Copy `Casks/morebar.rb` there; set the real `url` (the GitHub release asset)
    and the `sha256` printed by the packaging script; keep `version` in sync.
 3. Users install with:
 
 ```sh
-brew tap <org>/tap
+brew tap nexatech-ltd/tap
 brew install --cask morebar
 ```
 
@@ -49,7 +49,7 @@ usual bar; niche or brand-new apps get rejected). Once MoreBar has traction:
 
 ```sh
 brew tap homebrew/cask
-brew create --cask https://github.com/<org>/morebar/releases/download/v0.2.0/MoreBar-0.2.0.dmg --set-name morebar
+brew create --cask https://github.com/nexatech-ltd/morebar/releases/download/v0.2.0/MoreBar-0.2.0.dmg --set-name morebar
 brew audit --cask --new morebar && brew style --fix morebar
 # open a PR against github.com/Homebrew/homebrew-cask
 ```

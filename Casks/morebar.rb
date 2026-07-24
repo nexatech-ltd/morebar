@@ -5,10 +5,10 @@ cask "morebar" do
   version "0.1.0"
   sha256 "6603b70800e0d6b31ab4a6ceffd5b0bd63588e204eea20fc6e8217967e8043c7"
 
-  url "https://github.com/nexatech/morebar/releases/download/v#{version}/MoreBar-#{version}.dmg"
+  url "https://github.com/nexatech-ltd/morebar/releases/download/v#{version}/MoreBar-#{version}.dmg"
   name "MoreBar"
   desc "Second menu bar below the notch for the icons that do not fit"
-  homepage "https://github.com/nexatech/morebar"
+  homepage "https://github.com/nexatech-ltd/morebar"
 
   depends_on macos: ">= :tahoe"
   depends_on arch: :arm64
