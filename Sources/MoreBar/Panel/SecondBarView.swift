@@ -88,7 +88,12 @@ private struct ItemCell: View {
     @State private var hovering = false
 
     var body: some View {
+        // Without .resizable() SwiftUI draws NSImage at its natural size and
+        // ignores the frame; real icon windows are bar-height already, but
+        // Retina captures land at 2x without this.
         Image(nsImage: entry.image)
+            .resizable()
+            .scaledToFit()
             .frame(height: barHeight)
             .background(
                 RoundedRectangle(cornerRadius: 4)
