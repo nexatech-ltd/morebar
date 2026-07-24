@@ -16,9 +16,10 @@ APP=build/MoreBar.app
 swift build -c release --arch arm64
 
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 sed -e "s/__VERSION__/$VERSION/" -e "s/__BUILD__/$BUILD/" Support/Info.plist > "$APP/Contents/Info.plist"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
+cp Support/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 cp .build/arm64-apple-macosx/release/MoreBar "$APP/Contents/MacOS/MoreBar"
 
 codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$APP"
