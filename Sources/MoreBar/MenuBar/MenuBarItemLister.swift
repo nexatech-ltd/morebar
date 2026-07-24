@@ -24,10 +24,18 @@ final class MenuBarItemLister {
             .sorted { $0.window.frame.minX < $1.window.frame.minX }
     }
 
-    /// Icons for the second bar: non-system ones that ended up off screen
-    /// (parked by macOS or pushed by the expanded spacer) or under the notch.
+    /// Icons for the second bar.
+    ///
+    /// Everything inside the spacer's push zone (far left of every screen)
+    /// is there because WE hid it — show it unconditionally. Classification
+    /// matters only for items we did not hide ourselves: source resolution
+    /// often fails for off-screen windows (AX reports no frames for them),
+    /// and gating the push zone on `isSystem` would make hidden icons
+    /// invisible both in the bar and in the panel.
     func hiddenItems() -> [MenuBarItem] {
-        currentItems().filter { item in
+        let hiddenZoneBoundary = (NSScreen.screens.map(\.frame.minX).min() ?? 0) - 500
+        return currentItems().filter { item in
+            if item.window.frame.minX < hiddenZoneBoundary { return true }
             guard !item.isSystem else { return false }
             if !item.window.isOnScreen { return true }
             if let notch = NSScreen.main?.notchRect {
