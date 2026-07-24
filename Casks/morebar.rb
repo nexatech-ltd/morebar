@@ -2,8 +2,8 @@
 # update `url`, fill in `sha256` (printed by Scripts/package-dmg.sh), and
 # drop this file into the tap repository.
 cask "morebar" do
-  version "0.1.0"
-  sha256 "6603b70800e0d6b31ab4a6ceffd5b0bd63588e204eea20fc6e8217967e8043c7"
+  version "0.2.0"
+  sha256 "47095376e3c9fbfc01a0c16aba9abf07ad2f80fac45248fbf1a855cb8ebe0326"
 
   url "https://github.com/nexatech-ltd/morebar/releases/download/v#{version}/MoreBar-#{version}.dmg"
   name "MoreBar"
