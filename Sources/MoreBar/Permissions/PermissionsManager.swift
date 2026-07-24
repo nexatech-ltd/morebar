@@ -96,44 +96,48 @@ final class PermissionsManager {
             return
         }
 
-        // Step 1: Accessibility. Prompt once, first.
+        // Step 1: Accessibility, first and ALONE. The AX prompt is a system
+        // dialog that stays up until the user acts; we must not raise the
+        // Screen Recording prompt while it is open, or the two overlap and the
+        // window server drops one (which then never registers). So we wait for
+        // Accessibility to be GRANTED before touching Screen Recording.
         if !ax {
             if !accessibilityPrompted {
                 Self.log.info("prompting for Accessibility")
-                bringToFront()
                 AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
                 accessibilityPrompted = true
                 accessibilityPromptTick = ticks
             }
-            // Fall through to allow Screen Recording once the gap has passed,
-            // even if the user hasn't decided on Accessibility yet — but never
-            // in the same tick as the Accessibility prompt.
+            return
         }
 
-        // Step 2: Screen Recording. Prompt once, only after Accessibility is
-        // either granted or its prompt has had a few seconds to settle.
-        let accessibilitySettled = ax
-            || (accessibilityPrompted && ticks >= accessibilityPromptTick + Self.promptGapTicks)
-        if !sr && !screenRecordingPrompted && accessibilitySettled {
+        // Step 2: Screen Recording, only after Accessibility is granted — the
+        // AX dialog is gone by now, so this prompt appears cleanly on its own.
+        if !sr && !screenRecordingPrompted {
             Self.log.info("requesting Screen Recording")
-            bringToFront()
             triggerScreenRecordingPrompt()
             screenRecordingPrompted = true
         }
     }
 
-    /// Brings the accessory app forward so the system prompt reliably attaches
-    /// to it instead of being presented behind the active app.
-    private func bringToFront() {
-        NSApp.activate(ignoringOtherApps: true)
-    }
-
     private func triggerScreenRecordingPrompt() {
-        // SCShareableContent both shows the prompt and registers the app in
-        // the Screen Recording list. Fired alone (not racing the AX prompt),
-        // this now reliably registers.
+        // SCShareableContent is the correct API to register the app in the
+        // Screen Recording list and present the prompt. It only works when the
+        // process is its OWN TCC responsible process — launching from a parent
+        // that already holds the permission (e.g. a terminal) makes macOS
+        // attribute the capture to that parent, so no prompt/record is created.
         SCShareableContent.getWithCompletionHandler { content, error in
-            Self.log.info("SCShareableContent: windows=\(content?.windows.count ?? -1) error=\(String(describing: error))")
+            guard let error = error as NSError? else {
+                Self.log.info("SCShareableContent ok: windows=\(content?.windows.count ?? -1, privacy: .public)")
+                return
+            }
+            Self.log.info("SCShareableContent error: code=\(error.code, privacy: .public) desc=\(error.localizedDescription, privacy: .public)")
+            // -3801 (SCStreamErrorUserDeclined) means the system will not
+            // present the prompt for us — the app must be added manually.
+            // Open the pane once so the user can do it without hunting.
+            if error.code == -3801 {
+                Task { @MainActor in Self.openScreenRecordingSettings() }
+            }
         }
     }
 
