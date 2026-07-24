@@ -98,7 +98,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let myPID = ProcessInfo.processInfo.processIdentifier
         let myLaunch = NSRunningApplication.current.launchDate ?? .distantFuture
         let others = NSRunningApplication.runningApplications(
-            withBundleIdentifier: Bundle.main.bundleIdentifier ?? "com.nexatech.MoreBar"
+            withBundleIdentifier: Bundle.main.bundleIdentifier ?? "dev.nexatech.MoreBar"
         )
         for app in others where app.processIdentifier != myPID {
             if (app.launchDate ?? .distantPast) < myLaunch {

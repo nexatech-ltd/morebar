@@ -60,7 +60,7 @@ final class PermissionsManager {
         }
     }
 
-    private static let log = Logger(subsystem: "com.nexatech.MoreBar", category: "permissions")
+    private static let log = Logger(subsystem: "dev.nexatech.MoreBar", category: "permissions")
 
     /// Starts the sequenced permission flow. Calls onGranted (once) when both
     /// permissions are in place.

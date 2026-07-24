@@ -16,7 +16,7 @@ import os
 ///     anything to its right.
 @MainActor
 final class HidingController {
-    private static let log = Logger(subsystem: "com.nexatech.MoreBar", category: "hiding")
+    private static let log = Logger(subsystem: "dev.nexatech.MoreBar", category: "hiding")
 
     private let spacer: SpacerItem
     private let lister: MenuBarItemLister
@@ -76,7 +76,22 @@ final class HidingController {
         }
     }
 
-    /// Places and expands the spacer, CALIBRATING its order position.
+    /// UserDefaults key for the spacer order position that was proven safe on
+    /// a previous run. Reusing it turns every launch after the first into a
+    /// single clean expand — no calibration flicker.
+    private static let verifiedPositionKey = "MoreBar.spacer.verifiedPosition"
+    private var verifiedPosition: CGFloat? {
+        get { UserDefaults.standard.object(forKey: Self.verifiedPositionKey) as? CGFloat }
+        set {
+            if let newValue {
+                UserDefaults.standard.set(newValue, forKey: Self.verifiedPositionKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: Self.verifiedPositionKey)
+            }
+        }
+    }
+
+    /// Places and expands the spacer at a proven-safe order position.
     ///
     /// The spacer stays expanded for the app's whole lifetime once engaged:
     /// on Tahoe, Control Centre DESTROYS the windows of naturally-overflowed
@@ -85,46 +100,41 @@ final class HidingController {
     /// spacer is what keeps the hidden icons alive.
     ///
     /// Geometry cannot prove the spacer's ORDER: a parked spacer window sits
-    /// under the notch with a meaningless x. So the order is calibrated
-    /// empirically: expand — if any visible system item gets pushed, collapse
-    /// (which restores it), bump the position one notch left, retry. The
-    /// converged position persists in UserDefaults, so calibration is a
-    /// one-time cost with a sub-second icon blink per attempt.
+    /// under the notch with a meaningless x. So on the FIRST run the order is
+    /// calibrated empirically (expand — if a system item is pushed, collapse
+    /// to restore it, shift one notch left, retry). The winning position is
+    /// cached, and later runs skip straight to a single expand — which is why
+    /// the icon churn only ever happens once.
     private func expandSpacerSafely() async -> Bool {
+        // Fast path: reuse the position proven safe on a previous run.
+        if let verified = verifiedPosition {
+            if spacer.preferredPosition != verified {
+                let previousID = newestSpacerWindow()?.windowID
+                spacer.recreate(preferredPosition: verified)
+                if let previousID { _ = await waitForNewSpacerWindow(previousID: previousID) }
+            }
+            if await tryExpandOnce() {
+                Self.log.info("engaged at cached position \(verified) (no calibration)")
+                return true
+            }
+            // The bar changed enough that the cached position is no longer
+            // safe — drop it and recalibrate.
+            Self.log.info("cached position \(verified) no longer safe; recalibrating")
+            verifiedPosition = nil
+        }
+
+        // Full calibration (first run, or after a layout change).
         for attempt in 1...6 {
             guard await placeSpacerLeftOfSystemBlock() else {
                 Self.log.error("failed to place spacer left of system block; not expanding")
                 return false
             }
-
-            // Baseline: only items visible BEFORE expansion can be harmed.
-            let baseline = lister.currentItems()
-                .filter { $0.window.isOnScreen && $0.isSystem }
-            guard !baseline.isEmpty else { return false }
-
-            spacer.isExpanded = true
-            try? await Task.sleep(for: .milliseconds(600))
-
-            // A system item counts as PUSHED only if its window travelled
-            // far left — dynamic items like NowPlaying hide by themselves
-            // in place, which is not our doing.
-            let fresh = WindowInfo.statusItemWindows()
-            let pushed = baseline.filter { item in
-                guard let now = fresh.first(where: { $0.windowID == item.window.windowID }) else {
-                    return false // window gone entirely (app/state change), not a push
-                }
-                return !now.isOnScreen && now.frame.minX < item.window.frame.minX - 100
-            }
-
-            if pushed.isEmpty {
-                isEngaged = true
+            if await tryExpandOnce() {
+                verifiedPosition = spacer.preferredPosition
                 Self.log.info("engaged on attempt \(attempt) at position \(self.spacer.preferredPosition)")
                 return true
             }
-
-            Self.log.info("calibration attempt \(attempt): \(pushed.count) system item(s) pushed — collapsing and moving one notch left")
-            spacer.isExpanded = false
-            await waitForRestore(of: pushed)
+            Self.log.info("calibration attempt \(attempt) pushed a system item; moving one notch left")
             if let previousID = newestSpacerWindow()?.windowID {
                 spacer.recreate(preferredPosition: spacer.preferredPosition + 150)
                 _ = await waitForNewSpacerWindow(previousID: previousID)
@@ -132,6 +142,40 @@ final class HidingController {
         }
         Self.log.error("calibration failed after 6 attempts; leaving the bar untouched")
         return false
+    }
+
+    /// Expands the spacer once and confirms no visible system item was pushed.
+    ///
+    /// Asymmetric timing to keep any mistake nearly invisible: SUCCESS needs
+    /// the full settle window with no push seen, but a detected push COLLAPSES
+    /// immediately (restoring the item), so a bad expand blinks for ~50 ms
+    /// instead of the full window.
+    private func tryExpandOnce() async -> Bool {
+        // Baseline: only items visible BEFORE expansion can be harmed.
+        let baseline = lister.currentItems()
+            .filter { $0.window.isOnScreen && $0.isSystem }
+        guard !baseline.isEmpty else { return false }
+
+        spacer.isExpanded = true
+        for _ in 0..<12 {
+            try? await Task.sleep(for: .milliseconds(50))
+            let fresh = WindowInfo.statusItemWindows()
+            // A system item counts as PUSHED only if its window travelled far
+            // left — dynamic items like NowPlaying hide themselves in place.
+            let pushed = baseline.filter { item in
+                guard let now = fresh.first(where: { $0.windowID == item.window.windowID }) else {
+                    return false // window gone entirely (app/state change), not a push
+                }
+                return !now.isOnScreen && now.frame.minX < item.window.frame.minX - 100
+            }
+            if !pushed.isEmpty {
+                spacer.isExpanded = false
+                await waitForRestore(of: pushed)
+                return false
+            }
+        }
+        isEngaged = true
+        return true
     }
 
     /// Waits until the given items are back on screen after a collapse.
@@ -175,12 +219,24 @@ final class HidingController {
     /// left of the system block. A collapsed (4 pt) spacer pushes nothing,
     /// so the attempts themselves are harmless.
     private func placeSpacerLeftOfSystemBlock() async -> Bool {
-        let margin: CGFloat = 20
+        // Success = spacer strictly left of the leftmost visible system icon.
+        // No extra buffer: on a compressed bar the spacer bottoms out at the
+        // left edge of the right-of-notch region, only a few px left of the
+        // leftmost icon, and any buffer would be physically unreachable.
+        // tryExpandOnce() is the real safety net — it verifies nothing system
+        // was actually pushed and collapses instantly if so.
+        var previousSpacerX = CGFloat.greatestFiniteMagnitude
         for _ in 0..<10 {
             guard let target = visibleSystemMinX() else { return false }
             guard let spacerWindow = newestSpacerWindow() else { return false }
             let spacerX = spacerWindow.frame.minX
-            if spacerX < target - margin { return true }
+            if spacerX < target { return true }
+            // The spacer stopped moving left (hit the menu bar's left edge):
+            // growing the position further is pointless.
+            if spacerX >= previousSpacerX - 1 {
+                return false
+            }
+            previousSpacerX = spacerX
 
             let overshoot = spacerX - target
             spacer.recreate(preferredPosition: spacer.preferredPosition + max(100, overshoot + 120))

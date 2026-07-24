@@ -7,7 +7,7 @@
 	<key>CFBundleExecutable</key>
 	<string>MoreBar</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.nexatech.MoreBar</string>
+	<string>dev.nexatech.MoreBar</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>

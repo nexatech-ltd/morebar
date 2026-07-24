@@ -13,7 +13,7 @@ final class EventTap {
         case pid(pid_t)
     }
 
-    private static let log = Logger(subsystem: "com.nexatech.MoreBar", category: "eventTap")
+    private static let log = Logger(subsystem: "dev.nexatech.MoreBar", category: "eventTap")
 
     /// Shared C callback for all taps.
     private static let sharedCallback: CGEventTapCallBack = { _, type, event, refcon in

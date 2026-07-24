@@ -14,7 +14,7 @@ import os
 /// minor macOS update can be patched quickly.
 @MainActor
 final class ItemClickForwarder {
-    private static let log = Logger(subsystem: "com.nexatech.MoreBar", category: "clickForwarder")
+    private static let log = Logger(subsystem: "dev.nexatech.MoreBar", category: "clickForwarder")
 
     private let lister: MenuBarItemLister
     private var inProgress = false

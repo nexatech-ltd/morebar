@@ -15,10 +15,10 @@ cask "morebar" do
 
   app "MoreBar.app"
 
-  uninstall quit: "com.nexatech.MoreBar"
+  uninstall quit: "dev.nexatech.MoreBar"
 
   zap trash: [
-    "~/Library/Preferences/com.nexatech.MoreBar.plist",
+    "~/Library/Preferences/dev.nexatech.MoreBar.plist",
   ]
 
   caveats <<~EOS
