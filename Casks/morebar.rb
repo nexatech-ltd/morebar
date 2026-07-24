@@ -10,7 +10,7 @@ cask "morebar" do
   desc "Second menu bar below the notch for the icons that do not fit"
   homepage "https://github.com/nexatech-ltd/morebar"
 
-  depends_on macos: ">= :tahoe"
+  depends_on macos: :tahoe
   depends_on arch: :arm64
 
   app "MoreBar.app"
