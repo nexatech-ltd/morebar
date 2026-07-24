@@ -8,6 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var lister: MenuBarItemLister?
     private var hiding: HidingController?
     private var panel: PanelController?
+    private var forwarder: ItemClickForwarder?
     private let permissions = PermissionsManager()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -31,10 +32,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.onVisibilityChange = { [weak self] visible in
             self?.statusIcon?.isHighlighted = visible
         }
-        panel.onItemClick = { windowID, rightClick in
-            // Click forwarding is wired up in M6.
-            _ = windowID
-            _ = rightClick
+        let forwarder = ItemClickForwarder(lister: lister)
+        self.forwarder = forwarder
+        panel.onItemClick = { [weak self] windowID, rightClick in
+            // Close the panel just before forwarding (Ice does the same) so
+            // the item's own menu does not fight our panel for the screen.
+            self?.panel?.close()
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(25))
+                await forwarder.showAndClick(
+                    windowID: windowID,
+                    button: rightClick ? .right : .left
+                )
+            }
         }
 
         permissions.onGranted = { [weak self] freshlyGranted in
